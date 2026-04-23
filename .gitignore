@@ -1,0 +1,13 @@
+# dev tooling, not deployed
+_tools/
+.claude/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# editor caches
+.vscode/
+.idea/
+*.swp

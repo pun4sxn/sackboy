@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sackboy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&family=Silkscreen:wght@400;700&display=swap">
+<style>
+  /* ====== RESET ====== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #000; color: #c8c8c8; font-family: 'VT323', monospace; cursor: crosshair; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  img, video { max-width: 100%; display: block; }
+
+  /* ====== GLOBAL FX: SCANLINES + CRT ====== */
+  .crt-overlay {
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        rgba(0,0,0,0.12) 0px,
+        rgba(0,0,0,0.12) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+    mix-blend-mode: multiply;
+  }
+  .crt-overlay::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.6) 100%);
+  }
+  .crt-overlay::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(
+        90deg,
+        rgba(255,255,255,0.015) 0px,
+        rgba(255,255,255,0.015) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+  }
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 9998;
+    opacity: 0.08; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.9'/></svg>");
+    animation: noiseShift 0.6s steps(4) infinite;
+  }
+  @keyframes noiseShift {
+    0%   { transform: translate(0,0); }
+    25%  { transform: translate(-2%,1%); }
+    50%  { transform: translate(1%,-1%); }
+    75%  { transform: translate(-1%,-2%); }
+    100% { transform: translate(2%,1%); }
+  }
+
+  /* ====== SCREENS ====== */
+  .screen {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.6s ease;
+    z-index: 1;
+  }
+  .screen.active { opacity: 1; pointer-events: auto; z-index: 10; }
+
+  /* ====== SCREEN 1: turn on the crowstation ====== */
+  #screen-intro { background: #000; }
+  #screen-intro .label {
+    font-family: 'VT323', monospace;
+    font-size: 26px;
+    letter-spacing: 0.08em;
+    color: #5a5a5a;
+    text-shadow: 0 0 6px rgba(120,120,120,0.35);
+    user-select: none;
+    cursor: pointer;
+    padding: 14px 28px;
+    animation: softPulse 2.4s ease-in-out infinite;
+    transition: color 0.25s ease, text-shadow 0.25s ease, transform 0.25s ease;
+  }
+  #screen-intro .label:hover {
+    color: #d8d8d8;
+    text-shadow: 0 0 14px rgba(220,220,220,0.8), 0 0 2px #fff;
+    transform: scale(1.03);
+  }
+  @keyframes softPulse {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 0.95; }
+  }
+
+  /* ====== SCREEN 2: video + main menu blob ====== */
+  #screen-video { background: #000; }
+  #video-placeholder {
+    position: absolute; inset: 0;
+    background: #000;
+    overflow: hidden;
+    transition: opacity 0.4s ease;
+  }
+  #intro-video {
+    width: 100%; height: 100%; object-fit: cover;
+    display: block;
+  }
+  /* When we leave the video screen, fade the video out */
+  #screen-video.video-hidden #video-placeholder { opacity: 0; }
+
+  /* Blob + main menu label */
+  .menu-cluster {
+    position: absolute;
+    left: 72%; top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    opacity: 0; pointer-events: none;
+    transition: opacity 1.2s ease;
+  }
+  .menu-cluster.visible { opacity: 1; pointer-events: auto; }
+
+  .blob {
+    position: relative;
+    width: 80px; height: 150px;
+    filter: blur(0.4px);
+    pointer-events: none;
+  }
+  .blob .bar {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 60px; height: 6px; border-radius: 50%;
+    background: rgba(150,180,220,0.9);
+    filter: blur(6px);
+    opacity: 0.8;
+  }
+  .blob .bar.b1 { top: 18px;  width: 70px; background: rgba(180,200,230,0.9); }
+  .blob .bar.b2 { top: 58px;  width: 40px; background: rgba(110,140,180,0.6); }
+  .blob .bar.b3 { top: 88px;  width: 50px; background: rgba(90,130,170,0.5); }
+  .blob .bar.b4 { top: 122px; width: 72px; background: rgba(190,210,235,0.95); }
+  .blob.small { width: 50px; height: 110px; }
+  .blob.small .bar { width: 36px; height: 5px; filter: blur(4px); }
+  .blob.small .bar.b1 { top: 12px; width: 28px; }
+  .blob.small .bar.b2 { top: 42px; width: 18px; background: rgba(200,220,240,1); filter: blur(2px); }
+  .blob.small .bar.b3 { top: 68px; width: 22px; }
+  .blob.small .bar.b4 { top: 92px; width: 32px; }
+
+  .menu-cluster .small-group {
+    display: flex; align-items: center; gap: 22px;
+  }
+  .menu-cluster .label-main {
+    font-family: 'VT323', monospace;
+    font-size: 28px; color: #cfcfcf;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: color 0.2s ease, text-shadow 0.2s ease;
+  }
+  .menu-cluster .label-main:hover {
+    color: #ffffff;
+    text-shadow: 0 0 12px rgba(255,255,255,0.6);
+  }
+
+  /* ====== SCREEN 3: main menu (vertical icon column, PS3-style bg) ====== */
+  #screen-main {
+    background:
+      url("assets/bg.png") center/cover no-repeat,
+      #3a2c5a;
+  }
+
+  /* Unified grid: top row of 6 icons, with active column hanging under the 3rd */
+  .main-grid {
+    position: absolute;
+    left: 32%; top: 22%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: flex-start;
+    gap: 1.8vw;
+    z-index: 10000;
+    user-select: none;
+  }
+  .nav-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 36px;
+  }
+  .nav-cell .nav-item {
+    width: 105px; height: 105px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    transition: transform 0.35s ease, filter 0.25s ease;
+    filter: drop-shadow(0 6px 14px rgba(0,0,0,0.45));
+    animation: floatY 3.6s ease-in-out infinite;
+    cursor: default;
+    background: transparent; border: 0; padding: 0;
+  }
+  .nav-cell .nav-item:hover {
+    transform: scale(1.12);
+    filter: drop-shadow(0 14px 22px rgba(0,0,0,0.7)) brightness(1.12);
+  }
+  .nav-cell .nav-item img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+  }
+  /* stagger animation so they don't all bob in sync */
+  .main-grid > .nav-cell:nth-child(1) .nav-item { animation-delay: 0s;   }
+  .main-grid > .nav-cell:nth-child(2) .nav-item { animation-delay: 0.3s; }
+  .main-grid > .nav-cell:nth-child(3) .nav-item:nth-child(1) { animation-delay: 0.6s; }
+  .main-grid > .nav-cell:nth-child(3) .nav-item:nth-child(2) { animation-delay: 0.9s; }
+  .main-grid > .nav-cell:nth-child(3) .nav-item:nth-child(3) { animation-delay: 1.2s; }
+  .main-grid > .nav-cell:nth-child(3) .nav-item:nth-child(4) { animation-delay: 1.5s; }
+  .main-grid > .nav-cell:nth-child(4) .nav-item { animation-delay: 1.8s; }
+  .main-grid > .nav-cell:nth-child(5) .nav-item { animation-delay: 2.1s; }
+  .main-grid > .nav-cell:nth-child(6) .nav-item { animation-delay: 2.4s; }
+
+  /* Active items inside the 3rd column — clickable */
+  .nav-cell .nav-item.active { cursor: pointer; }
+
+  /* Hover label in the top-left corner (appears on hover over active icons) */
+  .hover-label {
+    position: absolute;
+    top: 22px; left: 28px;
+    font-family: 'VT323', monospace;
+    font-size: 28px;
+    color: #ffffff;
+    letter-spacing: 0.06em;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.65);
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    z-index: 10001;
+  }
+  .hover-label.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  /* "Copy CA" button — top-right corner */
+  .copy-ca {
+    position: absolute;
+    top: 22px; right: 28px;
+    font-family: 'VT323', monospace;
+    font-size: 26px;
+    color: #ffffff;
+    letter-spacing: 0.06em;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.65);
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    cursor: pointer;
+    z-index: 10001;
+    transition: transform 0.2s ease, text-shadow 0.2s ease, opacity 0.2s ease;
+  }
+  .copy-ca:hover {
+    transform: scale(1.05);
+    text-shadow: 0 0 10px rgba(255,255,255,0.7), 0 2px 4px rgba(0,0,0,0.65);
+  }
+  .copy-ca.copied {
+    opacity: 0.75;
+  }
+
+  @media (max-width: 900px) {
+    .main-grid { gap: 1.5vw; }
+    .nav-cell .nav-item { width: 100px; height: 100px; }
+    .nav-cell { gap: 18px; }
+  }
+  #screen-main::before { content: none; } /* remove old scanlines here; CRT texture handles it globally */
+
+  .memcard-header {
+    position: absolute; top: 22px; left: 28px;
+    display: flex; align-items: center; gap: 12px;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.55);
+    font-family: 'VT323', monospace;
+    letter-spacing: 0.04em;
+    z-index: 3;
+  }
+
+  /* (old .icon-row/.icon-btn removed — unified into .main-grid above) */
+  @keyframes floatY {
+    0%,100% { transform: translateY(0); }
+    50%     { transform: translateY(-6px); }
+  }
+
+  /* bottom hint bar (PS2-style) */
+  .hint-bar {
+    position: absolute; bottom: 18px; left: 0; right: 0;
+    display: flex; justify-content: center; gap: 30px;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+    font-family: 'VT323', monospace; font-size: 16px;
+    opacity: 0.85; letter-spacing: 0.08em;
+    z-index: 3;
+  }
+  .hint-bar .key {
+    display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid #fff; margin-right: 6px; vertical-align: -3px;
+  }
+  .hint-bar .key.triangle { border-radius: 0; border: 0; position: relative; }
+  .hint-bar .key.triangle::before {
+    content: "△"; position: absolute; inset: -5px 0 0 0; text-align: center;
+    font-size: 20px; line-height: 1;
+  }
+
+  /* ====== GLOBAL CRT TEXTURE OVERLAY (soft-light, opacity 30%) ====== */
+  .crt-texture {
+    position: fixed; inset: 0; pointer-events: none;
+    background: url("assets/texture.png") center/cover no-repeat;
+    mix-blend-mode: soft-light;
+    opacity: 0.30;
+    z-index: 9997; /* under the old scanline overlay so it reads as texture underneath */
+  }
+  .memcard-icon {
+    width: 42px; height: 42px; position: relative;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  /* little penguin silhouette for header */
+  .mini-peng {
+    width: 28px; height: 34px; background: #1a1a1a;
+    border-radius: 50% 50% 45% 45% / 60% 60% 40% 40%;
+    position: relative;
+  }
+  .mini-peng::before {
+    content: ""; position: absolute; left: 50%; top: 35%;
+    transform: translateX(-50%);
+    width: 16px; height: 18px; background: #e5e5e5; border-radius: 50%;
+  }
+  .mini-peng::after {
+    content: ""; position: absolute; left: 50%; bottom: -3px;
+    transform: translateX(-50%);
+    width: 18px; height: 4px; background: #d9a641; border-radius: 2px;
+  }
+  .memcard-text .title { font-size: 22px; line-height: 1; }
+  .memcard-text .sub   { font-size: 14px; opacity: 0.85; letter-spacing: 0.1em; }
+
+  /* ====== SCREEN 4: PFP Maker (burlap / knitted theme) ====== */
+  #screen-builder { background: #000; }
+  .builder-bg {
+    position: absolute; inset: 0;
+    background:
+      url("assets/pfp/ambient.png") center/cover no-repeat,
+      #0a1810;
+  }
+  .builder-bg::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.75) 100%);
+    pointer-events: none;
+  }
+
+  .close-btn {
+    position: absolute; top: 20px; right: 26px;
+    display: flex; align-items: center; gap: 10px;
+    color: #f4e4c1; font-family: 'VT323', monospace;
+    font-size: 22px; letter-spacing: 0.06em;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+    z-index: 5;
+  }
+  .close-btn:hover { transform: scale(1.08); }
+  .close-btn .o-mark {
+    width: 22px; height: 22px; border: 3px solid #e14b4b; border-radius: 50%;
+    box-shadow: 0 0 6px rgba(225,75,75,0.6);
+  }
+
+  /* Shared burlap texture used throughout (SVG noise) */
+  /* We reuse via CSS custom prop to save bytes */
+  :root {
+    --burlap-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' stitchTiles='stitch' seed='4'/><feColorMatrix values='0 0 0 0 0.20  0 0 0 0 0.11  0 0 0 0 0.05  0 0 0 0.9 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    --burlap-a: #a46a3e;
+    --burlap-b: #6b3f20;
+    --burlap-dk: #3a2212;
+    --thread:   #e9d8a8;
+    --select:   #ffd966;
+  }
+
+  .builder-panel {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column; gap: 16px;
+    padding: 26px 24px 22px;
+    border-radius: 10px;
+    background:
+      var(--burlap-noise),
+      linear-gradient(180deg, var(--burlap-a) 0%, var(--burlap-b) 100%);
+    background-blend-mode: overlay, normal;
+    border: 3px solid var(--burlap-dk);
+    box-shadow:
+      0 14px 40px rgba(0,0,0,0.8),
+      inset 0 0 40px rgba(0,0,0,0.35),
+      inset 0 2px 0 rgba(255,230,190,0.12);
+  }
+  .builder-body {
+    display: flex; gap: 22px;
+    align-items: stretch;
+  }
+  /* stitched thread border inside the panel */
+  .builder-panel::before {
+    content: "";
+    position: absolute; inset: 8px;
+    border: 2px dashed var(--thread);
+    border-radius: 6px;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .builder-tabs {
+    position: absolute; top: -36px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px;
+    z-index: 3;
+  }
+  .tab {
+    width: 58px; height: 54px;
+    position: relative;
+    background:
+      var(--burlap-noise),
+      linear-gradient(180deg, var(--burlap-a), var(--burlap-b));
+    background-blend-mode: overlay, normal;
+    border: 2px solid var(--burlap-dk);
+    border-radius: 8px 8px 6px 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,230,190,0.15), 0 4px 10px rgba(0,0,0,0.6);
+    transition: filter 0.2s ease, transform 0.15s ease;
+  }
+  .tab::before {
+    content: ""; position: absolute; inset: 4px;
+    border: 1px dashed var(--thread);
+    border-radius: 5px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .tab:hover { filter: brightness(1.15); }
+  .tab.active { filter: brightness(1.2) saturate(1.15); }
+  .tab.active::before { border-color: var(--select); opacity: 0.9; }
+  .tab svg { width: 62%; height: 62%; color: var(--thread); }
+
+  .grid-wrap {
+    padding: 16px;
+    background:
+      var(--burlap-noise),
+      linear-gradient(180deg, var(--burlap-b), var(--burlap-dk));
+    background-blend-mode: overlay, normal;
+    border: 2px solid var(--burlap-dk);
+    border-radius: 6px;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.55);
+  }
+  .tile-grid {
+    display: grid; grid-template-columns: repeat(3, 92px);
+    gap: 12px;
+  }
+  .tile {
+    width: 92px; height: 92px;
+    background:
+      var(--burlap-noise),
+      linear-gradient(180deg, #7a4a26, #3e2412);
+    background-blend-mode: overlay, normal;
+    border: 2px solid var(--burlap-dk);
+    border-radius: 7px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.55), 0 2px 4px rgba(0,0,0,0.4);
+  }
+  .tile::before {
+    content: ""; position: absolute; inset: 4px;
+    border: 1px dashed var(--thread);
+    border-radius: 5px;
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .tile img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    z-index: 1;
+  }
+  .tile.char-tile img {
+    object-fit: contain;
+    object-position: center;
+    padding: 4px;
+  }
+  .tile.empty { cursor: default; filter: brightness(0.7) saturate(0.6); }
+  .tile.empty::after {
+    content: ""; position: absolute; inset: 18px;
+    border: 1px dashed var(--thread);
+    border-radius: 4px;
+    opacity: 0.25;
+  }
+  .tile:hover:not(.empty) {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.7);
+  }
+  .tile.selected {
+    box-shadow: inset 0 0 0 3px var(--select), inset 0 0 14px rgba(255,217,102,0.35), 0 4px 10px rgba(0,0,0,0.6);
+  }
+  .tile.selected::before { border-color: #fff3c0; opacity: 0.9; }
+
+  .preview-wrap {
+    width: 360px;
+    padding: 12px;
+    background:
+      var(--burlap-noise),
+      linear-gradient(180deg, var(--burlap-b), var(--burlap-dk));
+    background-blend-mode: overlay, normal;
+    border: 2px solid var(--burlap-dk);
+    border-radius: 6px;
+    display: flex; flex-direction: column;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.45);
+  }
+  .preview-head {
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--thread); font-family: 'VT323', monospace; font-size: 22px;
+    letter-spacing: 0.12em; padding: 2px 8px 6px;
+    text-shadow: 0 2px 3px rgba(0,0,0,0.8);
+  }
+  .preview-head .chip {
+    padding: 1px 10px; font-size: 14px;
+    color: var(--burlap-dk);
+    background: var(--thread);
+    border-radius: 2px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .preview-area {
+    aspect-ratio: 1 / 1;
+    margin-top: 2px;
+    position: relative; overflow: hidden;
+    border: 2px solid var(--burlap-dk);
+    border-radius: 3px;
+    background: #000;
+    box-shadow: inset 0 0 18px rgba(0,0,0,0.55);
+  }
+  .preview-area .bg-layer,
+  .preview-area .char-layer {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .preview-area .bg-layer img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transition: opacity 0.25s ease;
+  }
+  .preview-area .char-layer {
+    z-index: 2;
+    inset: 0;
+  }
+  .preview-area .char-layer img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 10px 14px rgba(0,0,0,0.55));
+    transition: opacity 0.25s ease;
+  }
+  .preview-foot {
+    margin-top: 8px; text-align: center; color: var(--thread);
+    font-family: 'VT323', monospace; font-size: 16px;
+    letter-spacing: 0.45em; opacity: 0.75;
+    border-top: 1px dashed rgba(233,216,168,0.35); padding-top: 6px;
+  }
+
+  .builder-actions {
+    display: flex; justify-content: center; gap: 12px;
+    margin-top: 4px;
+  }
+  .act {
+    min-width: 56px; height: 40px; padding: 0 14px;
+    position: relative;
+    background:
+      var(--burlap-noise),
+      linear-gradient(180deg, var(--burlap-a), var(--burlap-b));
+    background-blend-mode: overlay, normal;
+    border: 2px solid var(--burlap-dk); border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 6px;
+    color: var(--thread); font-family: 'VT323', monospace; font-size: 22px;
+    letter-spacing: 0.06em;
+    box-shadow: inset 0 1px 0 rgba(255,230,190,0.15), 0 4px 8px rgba(0,0,0,0.6);
+    transition: filter 0.2s ease, transform 0.12s ease;
+    cursor: pointer;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    white-space: nowrap;
+  }
+  .act.act-wide { min-width: 120px; font-size: 20px; }
+  .act::before {
+    content: ""; position: absolute; inset: 4px;
+    border: 1px dashed var(--thread);
+    border-radius: 3px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .act:hover { filter: brightness(1.2); transform: translateY(-1px); }
+  .act:active { transform: translateY(1px); }
+
+  /* ====== UTIL ====== */
+  .hidden { display: none !important; }
+
+  /* ====== RESPONSIVE ====== */
+  @media (max-width: 900px) {
+    .menu-cluster { gap: 120px; }
+    .icon-row { gap: 40px; }
+    .icon-btn { width: 90px; height: 90px; }
+    .builder-panel { flex-direction: column; padding: 28px; }
+    .preview-wrap { width: 100%; }
+    .tile-grid { grid-template-columns: repeat(3, 72px); }
+    .tile { width: 72px; height: 72px; }
+  }
+  @media (max-width: 560px) {
+    #screen-intro .label { font-size: 18px; }
+    .menu-cluster { gap: 60px; }
+    .memcard-header { top: 12px; left: 14px; }
+    .memcard-text .title { font-size: 16px; }
+    .memcard-text .sub   { font-size: 11px; }
+    .hint-bar { font-size: 13px; gap: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Global FX -->
+<div class="crt-texture"></div>
+<div class="crt-overlay"></div>
+<div class="noise"></div>
+
+<!-- Audio -->
+<audio id="click-sfx" src="assets/click.mp3" preload="auto"></audio>
+<audio id="bgm" src="assets/bgm.mp3" preload="auto" loop></audio>
+
+<!-- SCREEN 1: INTRO -->
+<section id="screen-intro" class="screen active" data-screen="intro">
+  <div class="label" id="btn-turn-on">turn on Sackboy "A Big Adventure"</div>
+</section>
+
+<!-- SCREEN 2: VIDEO + MAIN MENU CTA -->
+<section id="screen-video" class="screen" data-screen="video">
+  <div id="video-placeholder">
+    <video id="intro-video" playsinline preload="auto">
+      <source src="intro.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+  </div>
+  <div class="menu-cluster" id="menu-cluster">
+    <div class="small-group" id="btn-main-menu">
+      <div class="label-main">Main Menu</div>
+    </div>
+  </div>
+</section>
+
+<!-- SCREEN 3: MAIN MENU -->
+<section id="screen-main" class="screen" data-screen="main">
+
+  <div class="hover-label" id="hover-label"></div>
+  <button class="copy-ca" id="copy-ca" data-ca="00000000000000000000000000000000000000000000">Copy CA</button>
+
+  <div class="main-grid">
+    <!-- 1. Film -->
+    <div class="nav-cell">
+      <div class="nav-item"><img src="assets/nav/1_film.png" alt=""></div>
+    </div>
+
+    <!-- 2. TV/Camera -->
+    <div class="nav-cell">
+      <div class="nav-item"><img src="assets/nav/2_tv.png" alt=""></div>
+    </div>
+
+    <!-- 3. Joystick — active column hangs below -->
+    <div class="nav-cell">
+      <div class="nav-item"><img src="assets/nav/3_joy.png" alt=""></div>
+
+      <!-- Pill: pump.fun -->
+      <a class="nav-item active" id="icon-pump" href="https://pump.fun" target="_blank" rel="noopener" data-label="PumpFun">
+        <img src="assets/pill.png" alt="pump.fun">
+      </a>
+
+      <!-- Sackboy: builder -->
+      <button class="nav-item active" id="icon-builder" aria-label="Open builder" data-label="Sackboy PFP Maker">
+        <img src="assets/sackboy.png" alt="Builder">
+      </button>
+
+      <!-- X: Twitter -->
+      <a class="nav-item active" id="icon-twitter" href="https://twitter.com" target="_blank" rel="noopener" data-label="X">
+        <img src="assets/x.png" alt="Twitter">
+      </a>
+    </div>
+
+    <!-- 4. Globe -->
+    <div class="nav-cell">
+      <div class="nav-item"><img src="assets/nav/4_globe.png" alt=""></div>
+    </div>
+
+    <!-- 5. PS -->
+    <div class="nav-cell">
+      <div class="nav-item"><img src="assets/nav/5_ps.png" alt=""></div>
+    </div>
+
+    <!-- 6. Faces -->
+    <div class="nav-cell">
+      <div class="nav-item"><img src="assets/nav/6_faces.png" alt=""></div>
+    </div>
+  </div>
+
+</section>
+
+<!-- SCREEN 4: BUILDER -->
+<section id="screen-builder" class="screen" data-screen="builder">
+  <div class="builder-bg"></div>
+
+  <div class="close-btn" id="btn-close-builder">
+    <div class="o-mark"></div>
+    <span>Close</span>
+  </div>
+
+  <div class="builder-panel">
+    <!-- Tabs -->
+    <div class="builder-tabs">
+      <button class="tab active" id="tab-char" title="Character" data-tab="char">
+        <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="20" cy="14" r="6"/>
+          <path d="M8 34c0-6.5 5.4-10 12-10s12 3.5 12 10"/>
+        </svg>
+      </button>
+      <button class="tab" id="tab-bg" title="Background" data-tab="bg">
+        <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+          <rect x="6" y="8" width="28" height="24" rx="2"/>
+          <path d="M6 26l8-8 7 7 5-5 8 8"/>
+          <circle cx="15" cy="15" r="2.2" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Main body: grid + preview -->
+    <div class="builder-body">
+      <div class="grid-wrap">
+        <div class="tile-grid" id="tile-grid">
+          <!-- Populated via JS based on active tab -->
+        </div>
+      </div>
+
+      <div class="preview-wrap">
+        <div class="preview-head">
+          <span class="chip">01</span>
+          <span>PREVIEW</span>
+          <span class="chip">02</span>
+        </div>
+        <div class="preview-area" id="preview-area">
+          <div class="bg-layer"><img id="preview-bg" alt=""></div>
+          <div class="char-layer"><img id="preview-char" alt=""></div>
+        </div>
+        <div class="preview-foot">SACKBOY</div>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="builder-actions">
+      <button class="act" id="act-prev" title="Prev">&lt;</button>
+      <button class="act" id="act-next" title="Next">&gt;</button>
+      <button class="act act-wide" id="act-shuffle" title="Shuffle">⇄ Random</button>
+      <button class="act act-wide" id="act-download" title="Download">⤓ Save</button>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  // ====== Audio setup ======
+  const clickSfx = document.getElementById('click-sfx');
+  const bgm      = document.getElementById('bgm');
+  if (bgm) {
+    bgm.volume  = 0.30;
+    bgm.loop    = true;
+  }
+  function playClick() {
+    if (!clickSfx) return;
+    try {
+      clickSfx.currentTime = 0;
+      clickSfx.play().catch(() => {});
+    } catch (_) {}
+  }
+  // Play click on ANY button or link click anywhere in the app
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button, a, [role="button"], .label, .tile, .tab, .act, .nav-item.active, .close-btn, .copy-ca, #btn-turn-on, #btn-main-menu');
+    if (btn) playClick();
+  }, true);
+
+  // ====== Screen navigation helpers ======
+  const screens = {
+    intro:   document.getElementById('screen-intro'),
+    video:   document.getElementById('screen-video'),
+    main:    document.getElementById('screen-main'),
+    builder: document.getElementById('screen-builder'),
+  };
+  function show(name) {
+    Object.values(screens).forEach(s => s.classList.remove('active'));
+    screens[name].classList.add('active');
+    // Start looping background music once we land on the main menu
+    if (name === 'main' && bgm && bgm.paused) {
+      bgm.currentTime = 0;
+      bgm.play().catch(() => {
+        // If autoplay was somehow blocked, next user click will enable it
+      });
+    }
+  }
+
+  // ====== Screen 1 -> Screen 2 (start video with sound) ======
+  const videoEl   = document.getElementById('intro-video');
+  const cluster   = document.getElementById('menu-cluster');
+  const videoScr  = document.getElementById('screen-video');
+
+  document.getElementById('btn-turn-on').addEventListener('click', () => {
+    show('video');
+    // Play with sound — allowed because this is a user gesture
+    videoEl.muted = false;
+    videoEl.currentTime = 0;
+    const playPromise = videoEl.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        // Fallback: if autoplay-with-sound is blocked, start muted so at least the video plays
+        videoEl.muted = true;
+        videoEl.play();
+      });
+    }
+  });
+
+  // Show the "Main Menu" CTA at 14 seconds into the video
+  videoEl.addEventListener('timeupdate', () => {
+    if (videoEl.currentTime >= 14 && !cluster.classList.contains('visible')) {
+      cluster.classList.add('visible');
+    }
+  });
+
+  // ====== Screen 2 -> Screen 3 (hide video, open main menu) ======
+  document.getElementById('btn-main-menu').addEventListener('click', () => {
+    // Stop & hide video
+    videoEl.pause();
+    videoEl.currentTime = 0;
+    videoScr.classList.add('video-hidden');
+    cluster.classList.remove('visible');
+    show('main');
+  });
+
+  // ====== Screen 3 -> Screen 4 ======
+  document.getElementById('icon-builder').addEventListener('click', () => {
+    show('builder');
+  });
+
+  // ====== Screen 4 -> Screen 3 (Close) ======
+  document.getElementById('btn-close-builder').addEventListener('click', () => {
+    show('main');
+  });
+
+  // ====== PFP Maker: state + assets ======
+  const CHARS = Array.from({length: 9}, (_, i) => `assets/pfp/char_${i + 1}.png`);
+  const BGS   = Array.from({length: 7}, (_, i) => `assets/pfp/bg_${i + 1}.png`);
+
+  const state = {
+    tab: 'char',   // 'char' | 'bg'
+    char: 0,       // index into CHARS
+    bg: 0,         // index into BGS
+  };
+
+  const grid         = document.getElementById('tile-grid');
+  const previewBg    = document.getElementById('preview-bg');
+  const previewChar  = document.getElementById('preview-char');
+  const tabCharBtn   = document.getElementById('tab-char');
+  const tabBgBtn     = document.getElementById('tab-bg');
+
+  // --- Render preview (bg + character) ---
+  function renderPreview() {
+    previewBg.src   = BGS[state.bg];
+    previewChar.src = CHARS[state.char];
+  }
+
+  // --- Render the 3x3 grid based on the active tab ---
+  function renderGrid() {
+    const isChar = state.tab === 'char';
+    const items  = isChar ? CHARS : BGS;
+    const selIdx = isChar ? state.char : state.bg;
+
+    grid.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+      const tile = document.createElement('div');
+      tile.className = 'tile' + (isChar ? ' char-tile' : ' bg-tile');
+
+      if (i < items.length) {
+        const img = document.createElement('img');
+        img.src = items[i];
+        img.alt = '';
+        tile.appendChild(img);
+        if (i === selIdx) tile.classList.add('selected');
+        tile.addEventListener('click', () => selectIndex(i));
+      } else {
+        tile.classList.add('empty');
+      }
+      grid.appendChild(tile);
+    }
+  }
+
+  function selectIndex(i) {
+    if (state.tab === 'char') state.char = i;
+    else                       state.bg   = i;
+    renderGrid();
+    renderPreview();
+  }
+
+  function setTab(tab) {
+    if (state.tab === tab) return;
+    state.tab = tab;
+    tabCharBtn.classList.toggle('active', tab === 'char');
+    tabBgBtn.classList.toggle('active',   tab === 'bg');
+    renderGrid();
+  }
+
+  tabCharBtn.addEventListener('click', () => setTab('char'));
+  tabBgBtn  .addEventListener('click', () => setTab('bg'));
+
+  // --- Prev/Next cycle within the active tab ---
+  function step(dir) {
+    if (state.tab === 'char') {
+      state.char = (state.char + dir + CHARS.length) % CHARS.length;
+    } else {
+      state.bg   = (state.bg   + dir + BGS.length)   % BGS.length;
+    }
+    renderGrid();
+    renderPreview();
+  }
+  document.getElementById('act-prev').addEventListener('click', () => step(-1));
+  document.getElementById('act-next').addEventListener('click', () => step(+1));
+
+  // --- Shuffle: random character + random background ---
+  document.getElementById('act-shuffle').addEventListener('click', () => {
+    state.char = Math.floor(Math.random() * CHARS.length);
+    state.bg   = Math.floor(Math.random() * BGS.length);
+    renderGrid();
+    renderPreview();
+  });
+
+  // --- Download: compose to canvas, trigger PNG download ---
+  document.getElementById('act-download').addEventListener('click', async () => {
+    const size = 1024;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    function loadImg(src) {
+      return new Promise((resolve, reject) => {
+        const im = new Image();
+        im.crossOrigin = 'anonymous';
+        im.onload  = () => resolve(im);
+        im.onerror = reject;
+        im.src = src;
+      });
+    }
+
+    try {
+      const [bgImg, chImg] = await Promise.all([
+        loadImg(BGS[state.bg]),
+        loadImg(CHARS[state.char]),
+      ]);
+
+      // Draw background (cover)
+      const bgRatio = bgImg.width / bgImg.height;
+      let bw = size, bh = size;
+      if (bgRatio > 1) { bw = size * bgRatio; }
+      else             { bh = size / bgRatio; }
+      ctx.drawImage(bgImg, (size - bw) / 2, (size - bh) / 2, bw, bh);
+
+      // Character PNGs are already pre-composed on a 1024² canvas with
+      // the body at a consistent height and feet near the bottom, so
+      // simply draw them full-size over the background.
+      ctx.drawImage(chImg, 0, 0, size, size);
+
+      // Trigger download
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sackboy_${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      }, 'image/png');
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Не удалось сохранить картинку. Открой сайт через локальный сервер (не file://), и попробуй снова.');
+    }
+  });
+
+  // Initial render
+  renderGrid();
+  renderPreview();
+
+  // ====== Hover labels on active icons ======
+  const hoverLabel = document.getElementById('hover-label');
+  document.querySelectorAll('.nav-item.active[data-label]').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      hoverLabel.textContent = el.dataset.label;
+      hoverLabel.classList.add('visible');
+    });
+    el.addEventListener('mouseleave', () => {
+      hoverLabel.classList.remove('visible');
+    });
+  });
+
+  // ====== Copy CA button ======
+  const copyBtn = document.getElementById('copy-ca');
+  copyBtn.addEventListener('click', async () => {
+    const ca = copyBtn.dataset.ca || '';
+    const original = copyBtn.textContent;
+    try {
+      await navigator.clipboard.writeText(ca);
+    } catch {
+      // Fallback for older browsers / insecure contexts (file://)
+      const ta = document.createElement('textarea');
+      ta.value = ca;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    copyBtn.textContent = 'Copied!';
+    copyBtn.classList.add('copied');
+    setTimeout(() => {
+      copyBtn.textContent = original;
+      copyBtn.classList.remove('copied');
+    }, 1400);
+  });
+
+  // ====== Optional: keyboard shortcuts (ESC to go back one screen) ======
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const active = document.querySelector('.screen.active');
+      if (!active) return;
+      const order = ['intro','video','main','builder'];
+      const idx = order.indexOf(active.dataset.screen);
+      if (idx > 0) show(order[idx - 1]);
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
